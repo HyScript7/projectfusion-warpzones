@@ -1,0 +1,11 @@
+name: ProjectFusionWarpzones
+version: '1.0-SNAPSHOT'
+main: io.github.hyscript7.projectfusion.warpzones.ProjectFusionWarpzones
+api-version: '1.21.11'
+authors: [ HyScript7 ]
+dependencies:
+  server:
+    WorldEdit:
+      load: BEFORE
+      required: true
+      join-classpath: true
