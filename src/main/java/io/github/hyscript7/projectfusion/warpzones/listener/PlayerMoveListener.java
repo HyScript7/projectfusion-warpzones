@@ -201,7 +201,7 @@ public class PlayerMoveListener implements Listener {
                         .color(hasBelow ? NamedTextColor.YELLOW : NamedTextColor.DARK_GRAY)
         );
         bar = bar.append(
-                Component.text("« " + currentZone.getName()
+                Component.text("« " + currentZone.getDisplayName()
                         + " [" + (currentIdx + 1) + "/" + stack.totalZones() + "] »")
                         .color(NamedTextColor.GREEN)
         );
@@ -233,7 +233,7 @@ public class PlayerMoveListener implements Listener {
                                 .color(NamedTextColor.YELLOW)
                 )
                 .append(
-                        Component.text("« " + currentZone.getName()
+                        Component.text("« " + currentZone.getDisplayName()
                                 + " [" + (currentIdx + 1) + "/" + stack.totalZones() + "] »")
                                 .color(NamedTextColor.GREEN)
                 )

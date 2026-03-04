@@ -54,3 +54,7 @@ permissions:
   projectfusion.warpzones.admin.delete:
     description: Allow use of /warpzones delete.
     default: op
+
+  projectfusion.warpzones.admin.rename:
+    description: Allow use of /warpzones rename to set or clear a zone's display name.
+    default: op

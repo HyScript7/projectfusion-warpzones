@@ -28,8 +28,10 @@ public class WarpZone implements ConfigurationSerializable {
     private final double minZ;
     private final double maxZ;
     private final double yaw;
-    private UUID nextWarpZoneUuid;     // Up
-    private UUID previousWarpZoneUuid; // Down
+    private UUID   nextWarpZoneUuid;     // Up
+    private UUID   previousWarpZoneUuid; // Down
+    /** Optional human-readable label shown in the action bar. {@code null} means fall back to {@link #name}. */
+    private String displayName;
 
     public WarpZone(String name, World world, Location corner1, Location corner2, double yaw) {
         this(UUID.randomUUID(), name, world, corner1, corner2, yaw);
@@ -156,6 +158,11 @@ public class WarpZone implements ConfigurationSerializable {
 
     public UUID getWarpZoneUuid()  { return warpZoneUuid; }
     public String getName()         { return name; }
+    /**
+     * Returns the display name if one has been set, otherwise falls back to the
+     * zone's ID name. Use this everywhere a human-readable label is needed.
+     */
+    public String getDisplayName()  { return displayName != null ? displayName : name; }
     public World getWorld()         { return world; }
     public Location getCorner1()    { return corner1; }
     public Location getCorner2()    { return corner2; }
@@ -166,6 +173,8 @@ public class WarpZone implements ConfigurationSerializable {
 
     public void setNextWarpZoneUuid(UUID nextWarpZoneUuid)         { this.nextWarpZoneUuid = nextWarpZoneUuid; }
     public void setPreviousWarpZoneUuid(UUID previousWarpZoneUuid) { this.previousWarpZoneUuid = previousWarpZoneUuid; }
+    /** Sets the display name. Pass {@code null} to clear it and revert to the ID name. */
+    public void setDisplayName(String displayName)                 { this.displayName = displayName; }
 
     // -------------------------------------------------------------------------
     // Identity
@@ -191,6 +200,7 @@ public class WarpZone implements ConfigurationSerializable {
         Map<String, Object> map = new HashMap<>();
         map.put("uuid",              warpZoneUuid.toString());
         map.put("name",              name);
+        map.put("displayName",       displayName); // null is fine — YAML omits null values
         map.put("previousZoneUuid",  previousWarpZoneUuid != null ? previousWarpZoneUuid.toString() : null);
         map.put("nextZoneUuid",      nextWarpZoneUuid     != null ? nextWarpZoneUuid.toString()     : null);
         map.put("world",             world.getName());
@@ -205,6 +215,7 @@ public class WarpZone implements ConfigurationSerializable {
 
         // Fall back to UUID string for zones saved before names were introduced.
         String name = map.containsKey("name") ? (String) map.get("name") : warpZoneUuid.toString();
+        String displayName = (String) map.get("displayName"); // null when absent — that is correct
 
         String prevStr = (String) map.get("previousZoneUuid");
         UUID previousZoneUuid = prevStr != null ? UUID.fromString(prevStr) : null;
@@ -215,7 +226,7 @@ public class WarpZone implements ConfigurationSerializable {
         World world = Bukkit.getWorld((String) map.get("world"));
         double yaw  = map.get("yaw") != null ? ((Number) map.get("yaw")).doubleValue() : 0.0;
 
-        return new WarpZone(
+        WarpZone zone = new WarpZone(
                 warpZoneUuid, name,
                 previousZoneUuid, nextZoneUuid,
                 world,
@@ -223,5 +234,7 @@ public class WarpZone implements ConfigurationSerializable {
                 (Location) map.get("corner2"),
                 yaw
         );
+        zone.setDisplayName(displayName);
+        return zone;
     }
 }

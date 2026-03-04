@@ -53,7 +53,8 @@ public final class ProjectFusionWarpzones extends JavaPlugin {
                 .then(WarpZoneListCommand.build(manager))
                 .then(WarpZoneCreateCommand.build(manager))
                 .then(WarpZoneDeleteCommand.build(manager))
-                .then(WarpZoneLinkCommand.build(manager));
+                .then(WarpZoneLinkCommand.build(manager))
+                .then(WarpZoneRenameCommand.build(manager));
 
         getLifecycleManager().registerEventHandler(LifecycleEvents.COMMANDS, event ->
                 event.registrar().register(root.build()));

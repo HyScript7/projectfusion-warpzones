@@ -37,6 +37,7 @@ public final class WarpZonePermissions {
     public static final String ADMIN_CREATE = ADMIN + ".create";
     public static final String ADMIN_LINK   = ADMIN + ".link";
     public static final String ADMIN_DELETE = ADMIN + ".delete";
+    public static final String ADMIN_RENAME = ADMIN + ".rename";
 
     // -------------------------------------------------------------------------
     // World-use node

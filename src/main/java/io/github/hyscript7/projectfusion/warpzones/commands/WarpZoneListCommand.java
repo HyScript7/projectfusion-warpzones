@@ -46,6 +46,8 @@ public class WarpZoneListCommand {
                         message = message.append(Component.newline())
                                 .append(Component.text("• ").color(NamedTextColor.GRAY))
                                 .append(Component.text(zone.getName()).color(NamedTextColor.AQUA))
+                                .append(zone.getDisplayName().equals(zone.getName()) ? Component.empty()
+                                        : Component.text(" \"" + zone.getDisplayName() + "\"").color(NamedTextColor.WHITE))
                                 .append(Component.text(" in " + zone.getWorld().getName())
                                         .color(NamedTextColor.GRAY))
                                 .append(Component.newline())
