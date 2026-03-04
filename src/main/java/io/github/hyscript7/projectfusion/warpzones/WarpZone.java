@@ -13,6 +13,7 @@ import java.util.UUID;
 
 public class WarpZone implements ConfigurationSerializable {
     private final UUID warpZoneUuid;
+    private final String name;
     private final World world;
     private final Location corner1;
     private final Location corner2;
@@ -27,19 +28,20 @@ public class WarpZone implements ConfigurationSerializable {
     private final double minZ;
     private final double maxZ;
     private final double yaw;
-    private UUID nextWarpZoneUuid; // Up
+    private UUID nextWarpZoneUuid;     // Up
     private UUID previousWarpZoneUuid; // Down
 
-    public WarpZone(World world, Location corner1, Location corner2, double yaw) {
-        this(UUID.randomUUID(), world, corner1, corner2, yaw);
+    public WarpZone(String name, World world, Location corner1, Location corner2, double yaw) {
+        this(UUID.randomUUID(), name, world, corner1, corner2, yaw);
     }
 
-    public WarpZone(UUID warpZoneUuid, World world, Location corner1, Location corner2, double yaw) {
+    public WarpZone(UUID warpZoneUuid, String name, World world, Location corner1, Location corner2, double yaw) {
         if (!cornerWorldsMatchZoneWorld(world, corner1, corner2)) {
             throw new IllegalArgumentException("Corners are not in the same world");
         }
 
         this.warpZoneUuid = warpZoneUuid;
+        this.name = name;
         this.world = world;
 
         this.minXCorner = Math.min(corner1.getBlockX(), corner2.getBlockX());
@@ -62,15 +64,20 @@ public class WarpZone implements ConfigurationSerializable {
         this.yaw = yaw;
     }
 
-    private WarpZone(UUID warpZoneUuid, UUID previousWarpZoneUuid, UUID nextWarpZoneUuid, World world, Location corner1, Location corner2, double yaw) {
-        this(warpZoneUuid, world, corner1, corner2, yaw);
-        this.nextWarpZoneUuid = nextWarpZoneUuid;
+    /** Full deserialization constructor — includes linked-zone UUIDs. */
+    private WarpZone(UUID warpZoneUuid, String name, UUID previousWarpZoneUuid, UUID nextWarpZoneUuid,
+                     World world, Location corner1, Location corner2, double yaw) {
+        this(warpZoneUuid, name, world, corner1, corner2, yaw);
         this.previousWarpZoneUuid = previousWarpZoneUuid;
+        this.nextWarpZoneUuid = nextWarpZoneUuid;
     }
 
+    // -------------------------------------------------------------------------
+    // Geometry helpers
+    // -------------------------------------------------------------------------
+
     private static boolean cornerWorldsMatchZoneWorld(World world, Location corner1, Location corner2) {
-        if (!corner1.getWorld().equals(world)) return false;
-        return corner2.getWorld().equals(world);
+        return corner1.getWorld().equals(world) && corner2.getWorld().equals(world);
     }
 
     public boolean containsLocation(@NotNull Location location) {
@@ -86,6 +93,10 @@ public class WarpZone implements ConfigurationSerializable {
                 && z >= minZ && z < maxZ + 1;
     }
 
+    /**
+     * Returns the packed chunk keys (as used by {@link org.bukkit.Chunk#getChunkKey()})
+     * for every chunk that overlaps this zone's bounding box.
+     */
     public long[] getChunks() {
         int minChunkX = minXCorner >> 4;
         int maxChunkX = maxXCorner >> 4;
@@ -105,26 +116,10 @@ public class WarpZone implements ConfigurationSerializable {
         return chunks;
     }
 
-    public UUID getWarpZoneUuid() {
-        return warpZoneUuid;
-    }
-
-    public World getWorld() {
-        return world;
-    }
-
-    public Location getCorner1() {
-        return corner1;
-    }
-
-    public Location getCorner2() {
-        return corner2;
-    }
-
-    public double getYaw() {
-        return yaw;
-    }
-
+    /**
+     * Maps a location inside {@code other} to the corresponding position inside this zone,
+     * accounting for any yaw rotation between the two zones.
+     */
     public Location transitionFrom(WarpZone other, Location loc) {
         double otherExtentX = (other.maxX + 1) - other.minX;
         double otherExtentY = (other.maxY + 1) - other.minY;
@@ -146,7 +141,6 @@ public class WarpZone implements ConfigurationSerializable {
         double newRelZ = Math.max(0.0, Math.min(1.0, (cx * sin + cz * cos) + 0.5));
         relY           = Math.max(0.0, Math.min(1.0, relY));
 
-        // Apply relative position to this zone's true spatial extents
         double destX = this.minX + newRelX * ((this.maxX + 1) - this.minX);
         double destY = this.minY + relY    * ((this.maxY + 1) - this.minY);
         double destZ = this.minZ + newRelZ * ((this.maxZ + 1) - this.minZ);
@@ -156,63 +150,78 @@ public class WarpZone implements ConfigurationSerializable {
         return new Location(this.world, destX, destY, destZ, newYaw, loc.getPitch());
     }
 
-    public UUID getNextWarpZoneUuid() {
-        return nextWarpZoneUuid;
-    }
+    // -------------------------------------------------------------------------
+    // Getters / setters
+    // -------------------------------------------------------------------------
 
-    public void setNextWarpZoneUuid(UUID nextWarpZoneUuid) {
-        this.nextWarpZoneUuid = nextWarpZoneUuid;
-    }
+    public UUID getWarpZoneUuid()  { return warpZoneUuid; }
+    public String getName()         { return name; }
+    public World getWorld()         { return world; }
+    public Location getCorner1()    { return corner1; }
+    public Location getCorner2()    { return corner2; }
+    public double getYaw()          { return yaw; }
 
-    public UUID getPreviousWarpZoneUuid() {
-        return previousWarpZoneUuid;
-    }
+    public UUID getNextWarpZoneUuid()     { return nextWarpZoneUuid; }
+    public UUID getPreviousWarpZoneUuid() { return previousWarpZoneUuid; }
 
-    public void setPreviousWarpZoneUuid(UUID previousWarpZoneUuid) {
-        this.previousWarpZoneUuid = previousWarpZoneUuid;
-    }
+    public void setNextWarpZoneUuid(UUID nextWarpZoneUuid)         { this.nextWarpZoneUuid = nextWarpZoneUuid; }
+    public void setPreviousWarpZoneUuid(UUID previousWarpZoneUuid) { this.previousWarpZoneUuid = previousWarpZoneUuid; }
+
+    // -------------------------------------------------------------------------
+    // Identity
+    // -------------------------------------------------------------------------
 
     @Override
     public boolean equals(Object o) {
         if (!(o instanceof WarpZone warpZone)) return false;
-        return Objects.equals(getWarpZoneUuid(), warpZone.getWarpZoneUuid());
+        return Objects.equals(warpZoneUuid, warpZone.warpZoneUuid);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hashCode(getWarpZoneUuid());
+        return Objects.hashCode(warpZoneUuid);
     }
+
+    // -------------------------------------------------------------------------
+    // ConfigurationSerializable
+    // -------------------------------------------------------------------------
 
     @Override
     public @NotNull Map<String, Object> serialize() {
         Map<String, Object> map = new HashMap<>();
-        map.put("uuid", warpZoneUuid.toString());
-        map.put("previousZoneUuid", previousWarpZoneUuid != null ? previousWarpZoneUuid.toString() : null);
-        map.put("nextZoneUuid", nextWarpZoneUuid != null ? nextWarpZoneUuid.toString() : null);
-        map.put("world", world.getName());
-        map.put("corner1", corner1);
-        map.put("corner2", corner2);
-        map.put("yaw", yaw);
+        map.put("uuid",              warpZoneUuid.toString());
+        map.put("name",              name);
+        map.put("previousZoneUuid",  previousWarpZoneUuid != null ? previousWarpZoneUuid.toString() : null);
+        map.put("nextZoneUuid",      nextWarpZoneUuid     != null ? nextWarpZoneUuid.toString()     : null);
+        map.put("world",             world.getName());
+        map.put("corner1",           corner1);
+        map.put("corner2",           corner2);
+        map.put("yaw",               yaw);
         return map;
     }
 
     public static WarpZone deserialize(Map<String, Object> map) {
-        String zoneUuid = (String) map.get("uuid");
-        UUID warpZoneUuid = UUID.fromString(zoneUuid);
-        String previousZoneUuidString = (String) map.get("previousZoneUuid");
-        UUID previousZoneUuid = previousZoneUuidString != null ? UUID.fromString(previousZoneUuidString) : null;
-        String nextZoneUuidString = (String) map.get("nextZoneUuid");
-        UUID nextZoneUuid = nextZoneUuidString != null ? UUID.fromString(nextZoneUuidString) : null;
-        String worldString = (String) map.get("world");
-        World world = Bukkit.getWorld(worldString);
+        UUID warpZoneUuid = UUID.fromString((String) map.get("uuid"));
+
+        // Fall back to UUID string for zones saved before names were introduced.
+        String name = map.containsKey("name") ? (String) map.get("name") : warpZoneUuid.toString();
+
+        String prevStr = (String) map.get("previousZoneUuid");
+        UUID previousZoneUuid = prevStr != null ? UUID.fromString(prevStr) : null;
+
+        String nextStr = (String) map.get("nextZoneUuid");
+        UUID nextZoneUuid = nextStr != null ? UUID.fromString(nextStr) : null;
+
+        World world = Bukkit.getWorld((String) map.get("world"));
+        double yaw  = map.get("yaw") != null ? ((Number) map.get("yaw")).doubleValue() : 0.0;
+
         return new WarpZone(
-                warpZoneUuid,
-                previousZoneUuid,
-                nextZoneUuid,
+                warpZoneUuid, name,
+                previousZoneUuid, nextZoneUuid,
                 world,
                 (Location) map.get("corner1"),
                 (Location) map.get("corner2"),
-                map.get("yaw") != null ? ((Number) map.get("yaw")).doubleValue() : 0.0
+                yaw
         );
     }
 }

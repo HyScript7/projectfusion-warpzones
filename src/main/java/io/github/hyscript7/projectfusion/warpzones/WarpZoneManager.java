@@ -6,40 +6,46 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
 
+/**
+ * Coordinates all runtime interactions with warp zones.
+ *
+ * <p>An in-memory chunk-based spatial index is kept for fast {@link #getWarpZone(Location)}
+ * queries (the hottest path — called on every player-move event). All other lookups
+ * delegate directly to the repository.
+ */
 public class WarpZoneManager {
-    private final Map<Long, Set<WarpZone>> warpZonesByChunk = new HashMap<>();
-    private final Map<WarpZone, ZoneStack> zoneStackByZone = new HashMap<>();
-    private final WarpZoneRepository repo;
+
+    private final Map<Long, Set<WarpZone>> zonesByChunk     = new HashMap<>();
+    private final Map<WarpZone, ZoneStack> stackByZone      = new HashMap<>();
+    private final WarpZoneRepository       repo;
 
     public WarpZoneManager(WarpZoneRepository repo) {
         this.repo = repo;
         refreshCache();
     }
 
+    // -------------------------------------------------------------------------
+    // Cache management
+    // -------------------------------------------------------------------------
+
+    /** Rebuilds the entire spatial cache from the repository. */
     public synchronized void refreshCache() {
-        warpZonesByChunk.clear();
-        zoneStackByZone.clear();
+        zonesByChunk.clear();
+        stackByZone.clear();
+
         List<WarpZone> all = repo.findAll();
-        for (WarpZone wz : all) {
-            addToChunkCache(wz);
-        }
-        buildZoneStackMap(all);
+        all.forEach(this::addToChunkCache);
+        buildAllZoneStacks(all);
     }
 
-    public ZoneStack getWarpZoneStack(WarpZone warpZone) {
-        if (!zoneStackByZone.containsKey(warpZone)) {
-            rebuildZoneStack(warpZone);
-        }
-        return zoneStackByZone.get(warpZone);
-    }
+    // -------------------------------------------------------------------------
+    // Queries
+    // -------------------------------------------------------------------------
 
-    public @Nullable WarpZone getWarpZone(UUID uuid) {
-        return repo.find(uuid);
-    }
-
+    /** Returns the zone that contains {@code location}, or {@code null}. */
     public @Nullable WarpZone getWarpZone(Location location) {
         long chunkKey = location.getChunk().getChunkKey();
-        Set<WarpZone> candidates = warpZonesByChunk.get(chunkKey);
+        Set<WarpZone> candidates = zonesByChunk.get(chunkKey);
         if (candidates == null) return null;
         return candidates.stream()
                 .filter(wz -> wz.containsLocation(location))
@@ -47,10 +53,38 @@ public class WarpZoneManager {
                 .orElse(null);
     }
 
-    public synchronized void updateWarpZone(WarpZone warpZone) {
-        repo.save(warpZone);
-        rebuildZoneStack(warpZone);
+    /** Returns the zone with the given UUID, or {@code null}. */
+    public @Nullable WarpZone getWarpZone(UUID uuid) {
+        return repo.find(uuid);
     }
+
+    /** Returns the zone with the given name, or {@code null}. */
+    public @Nullable WarpZone getWarpZone(String name) {
+        return repo.findByName(name);
+    }
+
+    /** Returns all zone names — useful for tab-completion suggestions. */
+    public List<String> findAllNames() {
+        return repo.findAllNames();
+    }
+
+    /** Returns all zones. */
+    public List<WarpZone> findAll() {
+        return repo.findAll();
+    }
+
+    public boolean nameExists(String name) {
+        return repo.nameExists(name);
+    }
+
+    /** Returns the {@link ZoneStack} for the given zone, building it if necessary. */
+    public ZoneStack getWarpZoneStack(WarpZone warpZone) {
+        return stackByZone.computeIfAbsent(warpZone, z -> rebuildZoneStack(z));
+    }
+
+    // -------------------------------------------------------------------------
+    // Mutations
+    // -------------------------------------------------------------------------
 
     public synchronized void registerWarpZone(WarpZone warpZone) {
         repo.save(warpZone);
@@ -58,85 +92,127 @@ public class WarpZoneManager {
         rebuildZoneStack(warpZone);
     }
 
+    public synchronized void updateWarpZone(WarpZone warpZone) {
+        repo.save(warpZone);
+        rebuildZoneStack(warpZone);
+    }
+
+    /**
+     * Deletes a zone and repairs any links to adjacent zones so the remaining
+     * zones do not reference a stale UUID.
+     */
     public synchronized void deleteWarpZone(WarpZone warpZone) {
         if (warpZone.getPreviousWarpZoneUuid() != null) {
-            WarpZone previous = repo.find(warpZone.getPreviousWarpZoneUuid());
-            if (previous != null) {
-                previous.setNextWarpZoneUuid(null);
-                updateWarpZone(previous);
+            WarpZone below = repo.find(warpZone.getPreviousWarpZoneUuid());
+            if (below != null) {
+                below.setNextWarpZoneUuid(null);
+                updateWarpZone(below);
             }
         }
         if (warpZone.getNextWarpZoneUuid() != null) {
-            WarpZone next = repo.find(warpZone.getNextWarpZoneUuid());
-            if (next != null) {
-                next.setPreviousWarpZoneUuid(null);
-                updateWarpZone(next);
+            WarpZone above = repo.find(warpZone.getNextWarpZoneUuid());
+            if (above != null) {
+                above.setPreviousWarpZoneUuid(null);
+                updateWarpZone(above);
             }
         }
         removeFromChunkCache(warpZone);
-        zoneStackByZone.remove(warpZone);
+        stackByZone.remove(warpZone);
         repo.delete(warpZone);
     }
 
-    // --- Cache helpers ---
+    // -------------------------------------------------------------------------
+    // Chunk-cache helpers
+    // -------------------------------------------------------------------------
 
-    private void addToChunkCache(WarpZone warpZone) {
-        for (long chunkKey : warpZone.getChunks()) {
-            warpZonesByChunk.computeIfAbsent(chunkKey, k -> new HashSet<>()).add(warpZone);
+    private void addToChunkCache(WarpZone zone) {
+        for (long key : zone.getChunks()) {
+            zonesByChunk.computeIfAbsent(key, k -> new HashSet<>()).add(zone);
         }
     }
 
-    private void removeFromChunkCache(WarpZone warpZone) {
-        for (long chunkKey : warpZone.getChunks()) {
-            Set<WarpZone> zones = warpZonesByChunk.get(chunkKey);
-            if (zones != null) {
-                zones.remove(warpZone);
+    private void removeFromChunkCache(WarpZone zone) {
+        for (long key : zone.getChunks()) {
+            Set<WarpZone> bucket = zonesByChunk.get(key);
+            if (bucket != null) bucket.remove(zone);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Zone-stack helpers
+    // -------------------------------------------------------------------------
+
+    private void buildAllZoneStacks(List<WarpZone> all) {
+        Set<WarpZone> visited = new HashSet<>();
+        for (WarpZone zone : all) {
+            if (!visited.contains(zone)) {
+                ZoneStack stack = rebuildZoneStack(zone);
+                visited.addAll(stack.stack());
             }
         }
     }
 
-    // --- Zone stack helpers ---
+    private ZoneStack rebuildZoneStack(WarpZone zone) {
+        WarpZone       start   = findChainStart(zone);
+        List<WarpZone> ordered = collectChain(start);
 
-    private void buildZoneStackMap(List<WarpZone> all) {
-        Set<WarpZone> visited = new HashSet<>();
-        for (WarpZone wz : all) {
-            if (visited.contains(wz)) continue;
-            ZoneStack stack = rebuildZoneStack(wz);
-            visited.addAll(stack.stack());
-        }
-    }
+        // A cyclic stack is one where the last zone's "next" points back to the first.
+        UUID lastNext = ordered.getLast().getNextWarpZoneUuid();
+        boolean cyclic = lastNext != null
+                && lastNext.equals(ordered.getFirst().getWarpZoneUuid());
 
-    private ZoneStack rebuildZoneStack(WarpZone warpZone) {
-        WarpZone bottom = findBottomZone(warpZone);
-        List<WarpZone> ordered = buildZoneList(bottom);
-        ZoneStack zoneStack = new ZoneStack(
+        ZoneStack stack = new ZoneStack(
                 ordered.size(),
                 ordered.getFirst(),
                 ordered.getLast(),
                 ordered.getFirst(),
-                ordered
+                ordered,
+                cyclic
         );
-        for (WarpZone zone : ordered) {
-            zoneStackByZone.put(zone, zoneStack);
-        }
-        return zoneStack;
+        ordered.forEach(z -> stackByZone.put(z, stack));
+        return stack;
     }
 
-    /** Walks backwards through the linked list to find the first (bottom) zone. */
-    private WarpZone findBottomZone(WarpZone warpZone) {
-        while (warpZone.getPreviousWarpZoneUuid() != null) {
-            WarpZone previous = repo.find(warpZone.getPreviousWarpZoneUuid());
-            if (previous == null) break;
-            warpZone = previous;
+    /**
+     * Walks backwards to find the natural start of a linear chain.
+     *
+     * <p>For a <em>cyclic</em> chain there is no true start, so as soon as a repeated
+     * UUID is encountered (meaning we have gone all the way around) we stop and return
+     * the original {@code zone}. This ensures cyclic stacks always have a stable,
+     * deterministic entry point — the zone the rebuild was triggered from.
+     */
+    private WarpZone findChainStart(WarpZone zone) {
+        Set<UUID> visited = new HashSet<>();
+        visited.add(zone.getWarpZoneUuid());
+
+        WarpZone current = zone;
+        while (current.getPreviousWarpZoneUuid() != null) {
+            if (visited.contains(current.getPreviousWarpZoneUuid())) {
+                // We would revisit a node — this is a cycle.  The original zone is as
+                // good a starting point as any, so return it directly.
+                return zone;
+            }
+            WarpZone below = repo.find(current.getPreviousWarpZoneUuid());
+            if (below == null) break; // Stale link — treat this as the start.
+            visited.add(below.getWarpZoneUuid());
+            current = below;
         }
-        return warpZone;
+        return current; // Reached the true bottom of a linear chain.
     }
 
-    /** Walks forward through the linked list, collecting zones in order. */
-    private List<WarpZone> buildZoneList(WarpZone bottom) {
-        List<WarpZone> list = new ArrayList<>();
-        WarpZone current = bottom;
-        while (current != null) {
+    /**
+     * Walks forward from {@code start}, collecting every zone exactly once.
+     *
+     * <p>Stops when the next pointer is {@code null} (linear end), points to an
+     * already-visited UUID (cycle closing), or cannot be resolved (stale link).
+     */
+    private List<WarpZone> collectChain(WarpZone start) {
+        List<WarpZone> list    = new ArrayList<>();
+        Set<UUID>      visited = new HashSet<>();
+        WarpZone       current = start;
+
+        while (current != null && !visited.contains(current.getWarpZoneUuid())) {
+            visited.add(current.getWarpZoneUuid());
             list.add(current);
             UUID nextUuid = current.getNextWarpZoneUuid();
             current = (nextUuid != null) ? repo.find(nextUuid) : null;

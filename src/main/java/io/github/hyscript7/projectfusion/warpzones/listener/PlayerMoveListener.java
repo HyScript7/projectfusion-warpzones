@@ -5,7 +5,6 @@ import io.github.hyscript7.projectfusion.warpzones.WarpZone;
 import io.github.hyscript7.projectfusion.warpzones.WarpZoneManager;
 import io.github.hyscript7.projectfusion.warpzones.ZoneStack;
 import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.KeybindComponent;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Bukkit;
 import org.bukkit.Chunk;
@@ -24,94 +23,33 @@ import java.util.Map;
 import java.util.UUID;
 
 public class PlayerMoveListener implements Listener {
-    private static final long DEFAULT_ZONE_CHECK_INTERVAL = 125L; // Every half a second
+
+    /** Minimum milliseconds between zone-entry checks per player. */
+    private static final long DEFAULT_ZONE_CHECK_INTERVAL_MS = 125L;
 
     private final WarpZoneManager warpZoneManager;
-    private final Map<UUID, Long> debounce = new HashMap<>();
-    private final long zoneCheckInterval;
-    private final Map<UUID, UUID> playerLastSeenZone = new HashMap<>();
+    private final Map<UUID, Long>  debounce           = new HashMap<>();
+    private final Map<UUID, UUID>  playerLastSeenZone = new HashMap<>();
+    private final long             zoneCheckInterval;
+    private       BukkitTask       actionBarTask      = null;
 
     public PlayerMoveListener(WarpZoneManager warpZoneManager) {
-        this(warpZoneManager, DEFAULT_ZONE_CHECK_INTERVAL);
+        this(warpZoneManager, DEFAULT_ZONE_CHECK_INTERVAL_MS);
     }
 
-    public PlayerMoveListener(WarpZoneManager warpZoneManager, long zoneCheckInterval) {
-        this.warpZoneManager = warpZoneManager;
-        this.zoneCheckInterval = zoneCheckInterval;
+    public PlayerMoveListener(WarpZoneManager warpZoneManager, long zoneCheckIntervalMs) {
+        this.warpZoneManager  = warpZoneManager;
+        this.zoneCheckInterval = zoneCheckIntervalMs;
     }
 
-    @EventHandler
-    public void onPlayerMove(PlayerMoveEvent event) {
-        Player player = event.getPlayer();
-        UUID playerUuid = player.getUniqueId();
-        long now = System.currentTimeMillis();
-        if (now - debounce.getOrDefault(playerUuid, 0L) < zoneCheckInterval) return;
-        debounce.put(playerUuid, System.currentTimeMillis());
-
-        // If the manager returns a null, the player is not standing in any WarpZone
-        WarpZone warpZone = warpZoneManager.getWarpZone(player.getLocation());
-        if (warpZone == null) {
-            playerLastSeenZone.remove(playerUuid);
-            return;
-        }
-
-        if (warpZone.getWarpZoneUuid().equals(playerLastSeenZone.getOrDefault(playerUuid, null))) return;
-        playerLastSeenZone.put(playerUuid, warpZone.getWarpZoneUuid());
-        player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_CHIME, 1.0f, 1.0f);
-    }
-
-    private void changeZones(Player player, boolean directionIsUp) {
-        UUID playerZoneUuid = playerLastSeenZone.getOrDefault(player.getUniqueId(), null);
-        if (playerZoneUuid == null) return;
-        WarpZone currentZone = warpZoneManager.getWarpZone(playerZoneUuid);
-        if (currentZone == null) return;
-        UUID nextZoneUuid = directionIsUp ? currentZone.getNextWarpZoneUuid() : currentZone.getPreviousWarpZoneUuid();
-        if (nextZoneUuid == null) return;
-        WarpZone destinationZone = warpZoneManager.getWarpZone(nextZoneUuid);
-        if (destinationZone == null) {
-            if (directionIsUp) {
-                currentZone.setNextWarpZoneUuid(null);
-            } else {
-                currentZone.setPreviousWarpZoneUuid(null);
-            }
-            warpZoneManager.updateWarpZone(currentZone);
-            return;
-        }
-        Location newLocation = destinationZone.transitionFrom(currentZone, player.getLocation());
-        if (!newLocation.getChunk().isLoaded()) {
-            // Load destination to prevent flashing of the WarpZone interior if it is far away or in another world
-            for (long chunkKey : destinationZone.getChunks()) {
-                Chunk chunk = newLocation.getWorld().getChunkAt(chunkKey);
-                if (!chunk.isLoaded()) {
-                    chunk.load();
-                }
-            }
-        }
-        playerLastSeenZone.put(player.getUniqueId(), nextZoneUuid);
-        player.teleport(newLocation);
-    }
-
-    @EventHandler
-    public void onPlayerJump(PlayerJumpEvent event) {
-        Player player = event.getPlayer();
-        changeZones(player, true);
-    }
-
-    @EventHandler
-    public void onPlayerCrouch(PlayerToggleSneakEvent event) {
-        if (!event.isSneaking()) {
-            return;
-        }
-        changeZones(event.getPlayer(), false);
-    }
-
-    private BukkitTask actionBarTask = null;
+    // -------------------------------------------------------------------------
+    // Lifecycle
+    // -------------------------------------------------------------------------
 
     public void start(Plugin plugin) {
-        if (actionBarTask != null) {
-            stop();
-        }
-        Bukkit.getScheduler().runTaskTimerAsynchronously(plugin, this::showActionBarTask, 20L, 10L);
+        if (actionBarTask != null) stop();
+        actionBarTask = Bukkit.getScheduler()
+                .runTaskTimerAsynchronously(plugin, this::tickActionBars, 20L, 10L);
     }
 
     public void stop() {
@@ -121,41 +59,173 @@ public class PlayerMoveListener implements Listener {
         }
     }
 
-    private void showActionBarTask() {
+    // -------------------------------------------------------------------------
+    // Event handlers
+    // -------------------------------------------------------------------------
+
+    @EventHandler
+    public void onPlayerMove(PlayerMoveEvent event) {
+        Player player    = event.getPlayer();
+        UUID   playerId  = player.getUniqueId();
+        long   now       = System.currentTimeMillis();
+
+        // Debounce: skip if checked too recently.
+        if (now - debounce.getOrDefault(playerId, 0L) < zoneCheckInterval) return;
+        debounce.put(playerId, now);
+
+        WarpZone zone = warpZoneManager.getWarpZone(player.getLocation());
+        if (zone == null) {
+            playerLastSeenZone.remove(playerId);
+            return;
+        }
+
+        // Only react when the player enters a new zone.
+        if (zone.getWarpZoneUuid().equals(playerLastSeenZone.getOrDefault(playerId, null))) return;
+        playerLastSeenZone.put(playerId, zone.getWarpZoneUuid());
+        player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_CHIME, 1.0f, 1.0f);
+    }
+
+    @EventHandler
+    public void onPlayerJump(PlayerJumpEvent event) {
+        changeZone(event.getPlayer(), /* directionUp */ true);
+    }
+
+    @EventHandler
+    public void onPlayerCrouch(PlayerToggleSneakEvent event) {
+        if (!event.isSneaking()) return;
+        changeZone(event.getPlayer(), /* directionUp */ false);
+    }
+
+    // -------------------------------------------------------------------------
+    // Zone transition
+    // -------------------------------------------------------------------------
+
+    private void changeZone(Player player, boolean directionIsUp) {
+        UUID playerZoneUuid = playerLastSeenZone.get(player.getUniqueId());
+        if (playerZoneUuid == null) return;
+
+        WarpZone currentZone = warpZoneManager.getWarpZone(playerZoneUuid);
+        if (currentZone == null) return;
+
+        UUID destinationUuid = directionIsUp
+                ? currentZone.getNextWarpZoneUuid()
+                : currentZone.getPreviousWarpZoneUuid();
+        if (destinationUuid == null) return;
+
+        WarpZone destinationZone = warpZoneManager.getWarpZone(destinationUuid);
+        if (destinationZone == null) {
+            // Stale link — clean it up.
+            if (directionIsUp) currentZone.setNextWarpZoneUuid(null);
+            else               currentZone.setPreviousWarpZoneUuid(null);
+            warpZoneManager.updateWarpZone(currentZone);
+            return;
+        }
+
+        Location newLocation = destinationZone.transitionFrom(currentZone, player.getLocation());
+
+        // Pre-load destination chunks to prevent visual flicker.
+        if (!newLocation.getChunk().isLoaded()) {
+            for (long chunkKey : destinationZone.getChunks()) {
+                Chunk chunk = newLocation.getWorld().getChunkAt(chunkKey);
+                if (!chunk.isLoaded()) chunk.load();
+            }
+        }
+
+        playerLastSeenZone.put(player.getUniqueId(), destinationUuid);
+        player.teleport(newLocation);
+    }
+
+    // -------------------------------------------------------------------------
+    // Action bar (zone HUD)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Renders a compact zone HUD in every in-zone player's action bar.
+     *
+     * <p>Example (player on floor 2 of 3, zone named "lobby_mid"):
+     * <pre>
+     *   [1]  ‹ sneak ›  « lobby_mid »  ‹ jump ›  [3]
+     * </pre>
+     */
+    private void tickActionBars() {
         for (Map.Entry<UUID, UUID> entry : playerLastSeenZone.entrySet()) {
             Player player = Bukkit.getPlayer(entry.getKey());
             if (player == null) {
                 playerLastSeenZone.remove(entry.getKey());
                 continue;
             }
-            WarpZone warpZone = warpZoneManager.getWarpZone(entry.getValue());
-            if (warpZone == null) {
-                playerLastSeenZone.remove(entry.getValue());
+
+            WarpZone currentZone = warpZoneManager.getWarpZone(entry.getValue());
+            if (currentZone == null) {
+                playerLastSeenZone.remove(entry.getKey());
                 continue;
             }
-            ZoneStack stack = warpZoneManager.getWarpZoneStack(warpZone);
-            Component actionBarComponent = Component.empty();
-            int idx = stack.stack().indexOf(warpZone);
-            boolean hasFloorsAbove = !(idx+1 >= stack.stack().size());
-            boolean hasFloorsBelow = idx != 0;
-            for (WarpZone floor : stack.stack()) {
-                String position = "[" + (stack.stack().indexOf(floor) + 1) + "]";
-                if (floor.equals(warpZone)) {
-                    actionBarComponent = actionBarComponent
-                            .append(
-                                    Component.text(" <").append(Component.keybind("key.sneak")).append(Component.text("> ")).color(hasFloorsBelow ? NamedTextColor.YELLOW : NamedTextColor.DARK_GRAY)
-                            ).append(
-                                    Component.text(position).color(NamedTextColor.GREEN)
-                            ).append(
-                                    Component.text(" <").append(Component.keybind("key.jump")).append(Component.text("> ")).color(hasFloorsAbove ? NamedTextColor.GOLD : NamedTextColor.DARK_GRAY)
-                            );
-                } else {
-                    actionBarComponent = actionBarComponent.append(
-                            Component.text(position).color(NamedTextColor.GRAY)
-                    );
-                }
-            }
-            player.sendActionBar(actionBarComponent);
+
+            ZoneStack stack = warpZoneManager.getWarpZoneStack(currentZone);
+            player.sendActionBar(buildActionBar(currentZone, stack));
         }
+    }
+
+    private static Component buildActionBar(WarpZone currentZone, ZoneStack stack) {
+        int currentIdx = stack.stack().indexOf(currentZone);
+
+        if (stack.cyclic()) {
+            return buildCyclicActionBar(currentZone, currentIdx, stack);
+        }
+
+        boolean hasBelow = currentIdx > 0;
+        boolean hasAbove = currentIdx < stack.stack().size() - 1;
+
+        Component bar = Component.empty();
+
+        for (int i = 0; i < currentIdx; i++) {
+            bar = bar.append(Component.text("[" + (i + 1) + "] ").color(NamedTextColor.DARK_GRAY));
+        }
+
+        bar = bar.append(
+                Component.text(" ‹ ").append(Component.keybind("key.sneak")).append(Component.text(" › "))
+                        .color(hasBelow ? NamedTextColor.YELLOW : NamedTextColor.DARK_GRAY)
+        );
+        bar = bar.append(
+                Component.text("« " + currentZone.getName()
+                        + " [" + (currentIdx + 1) + "/" + stack.totalZones() + "] »")
+                        .color(NamedTextColor.GREEN)
+        );
+        bar = bar.append(
+                Component.text(" ‹ ").append(Component.keybind("key.jump")).append(Component.text(" › "))
+                        .color(hasAbove ? NamedTextColor.GOLD : NamedTextColor.DARK_GRAY)
+        );
+
+        for (int i = currentIdx + 1; i < stack.totalZones(); i++) {
+            bar = bar.append(Component.text(" [" + (i + 1) + "]").color(NamedTextColor.DARK_GRAY));
+        }
+
+        return bar;
+    }
+
+    /**
+     * Action-bar variant for cyclic stacks.
+     *
+     * <p>Both directions are always available in a loop, so both keybind indicators are
+     * always lit. A ↻ symbol is prepended to make the cyclic nature obvious at a glance.
+     *
+     * <p>Example (zone 2 of 4 in a loop):
+     * <pre>↻  ‹sneak›  « lobby_b [2/4] »  ‹jump›</pre>
+     */
+    private static Component buildCyclicActionBar(WarpZone currentZone, int currentIdx, ZoneStack stack) {
+        return Component.text("↻ ").color(NamedTextColor.LIGHT_PURPLE)
+                .append(
+                        Component.text(" ‹ ").append(Component.keybind("key.sneak")).append(Component.text(" › "))
+                                .color(NamedTextColor.YELLOW)
+                )
+                .append(
+                        Component.text("« " + currentZone.getName()
+                                + " [" + (currentIdx + 1) + "/" + stack.totalZones() + "] »")
+                                .color(NamedTextColor.GREEN)
+                )
+                .append(
+                        Component.text(" ‹ ").append(Component.keybind("key.jump")).append(Component.text(" › "))
+                                .color(NamedTextColor.GOLD)
+                );
     }
 }
