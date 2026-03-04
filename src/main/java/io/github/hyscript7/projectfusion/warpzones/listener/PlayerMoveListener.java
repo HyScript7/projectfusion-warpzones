@@ -3,6 +3,7 @@ package io.github.hyscript7.projectfusion.warpzones.listener;
 import com.destroystokyo.paper.event.player.PlayerJumpEvent;
 import io.github.hyscript7.projectfusion.warpzones.WarpZone;
 import io.github.hyscript7.projectfusion.warpzones.WarpZoneManager;
+import io.github.hyscript7.projectfusion.warpzones.WarpZonePermissions;
 import io.github.hyscript7.projectfusion.warpzones.ZoneStack;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
@@ -79,6 +80,12 @@ public class PlayerMoveListener implements Listener {
             return;
         }
 
+        // Silently ignore zones in worlds the player is not permitted to use.
+        if (!player.hasPermission(WarpZonePermissions.worldUse(zone.getWorld()))) {
+            playerLastSeenZone.remove(playerId);
+            return;
+        }
+
         // Only react when the player enters a new zone.
         if (zone.getWarpZoneUuid().equals(playerLastSeenZone.getOrDefault(playerId, null))) return;
         playerLastSeenZone.put(playerId, zone.getWarpZoneUuid());
@@ -118,6 +125,13 @@ public class PlayerMoveListener implements Listener {
             if (directionIsUp) currentZone.setNextWarpZoneUuid(null);
             else               currentZone.setPreviousWarpZoneUuid(null);
             warpZoneManager.updateWarpZone(currentZone);
+            return;
+        }
+
+        // When the destination is in a different world, verify the player has
+        // permission to use zones there before teleporting them across.
+        if (!destinationZone.getWorld().equals(currentZone.getWorld())
+                && !player.hasPermission(WarpZonePermissions.worldUse(destinationZone.getWorld()))) {
             return;
         }
 

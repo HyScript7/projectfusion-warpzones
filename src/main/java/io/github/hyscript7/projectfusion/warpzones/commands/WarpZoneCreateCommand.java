@@ -10,6 +10,7 @@ import com.sk89q.worldedit.bukkit.BukkitAdapter;
 import com.sk89q.worldedit.regions.Region;
 import io.github.hyscript7.projectfusion.warpzones.WarpZone;
 import io.github.hyscript7.projectfusion.warpzones.WarpZoneManager;
+import io.github.hyscript7.projectfusion.warpzones.WarpZonePermissions;
 import io.github.hyscript7.projectfusion.warpzones.util.YawUtils;
 import io.papermc.paper.command.brigadier.CommandSourceStack;
 import io.papermc.paper.command.brigadier.Commands;
@@ -25,6 +26,8 @@ import org.bukkit.entity.Player;
  * <p>Creates a new named warp zone from the player's current WorldEdit selection.
  * The player's yaw is snapped to the nearest cardinal direction and used as the
  * zone's orientation.
+ *
+ * <p>Requires: {@value WarpZonePermissions#ADMIN_CREATE}
  */
 public class WarpZoneCreateCommand {
 
@@ -32,6 +35,7 @@ public class WarpZoneCreateCommand {
 
     public static LiteralArgumentBuilder<CommandSourceStack> build(WarpZoneManager manager) {
         return Commands.literal("create")
+                .requires(src -> src.getSender().hasPermission(WarpZonePermissions.ADMIN_CREATE))
                 .then(Commands.argument("name", StringArgumentType.word())
                         .executes(ctx -> {
                             CommandSender sender = ctx.getSource().getSender();

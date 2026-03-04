@@ -4,6 +4,7 @@ import com.mojang.brigadier.Command;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import io.github.hyscript7.projectfusion.warpzones.WarpZone;
 import io.github.hyscript7.projectfusion.warpzones.WarpZoneManager;
+import io.github.hyscript7.projectfusion.warpzones.WarpZonePermissions;
 import io.github.hyscript7.projectfusion.warpzones.util.LocationUtil;
 import io.papermc.paper.command.brigadier.CommandSourceStack;
 import io.papermc.paper.command.brigadier.Commands;
@@ -17,6 +18,8 @@ import java.util.List;
  *
  * <p>Displays every registered warp zone with its name, bounding-box corners,
  * world, and link status.
+ *
+ * <p>Requires: {@value WarpZonePermissions#ADMIN_LIST}
  */
 public class WarpZoneListCommand {
 
@@ -24,6 +27,7 @@ public class WarpZoneListCommand {
 
     public static LiteralArgumentBuilder<CommandSourceStack> build(WarpZoneManager manager) {
         return Commands.literal("list")
+                .requires(src -> src.getSender().hasPermission(WarpZonePermissions.ADMIN_LIST))
                 .executes(ctx -> {
                     List<WarpZone> zones = manager.findAll();
 

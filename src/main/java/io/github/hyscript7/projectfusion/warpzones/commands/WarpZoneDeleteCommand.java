@@ -5,6 +5,7 @@ import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import io.github.hyscript7.projectfusion.warpzones.WarpZone;
 import io.github.hyscript7.projectfusion.warpzones.WarpZoneManager;
+import io.github.hyscript7.projectfusion.warpzones.WarpZonePermissions;
 import io.papermc.paper.command.brigadier.CommandSourceStack;
 import io.papermc.paper.command.brigadier.Commands;
 import net.kyori.adventure.text.Component;
@@ -14,6 +15,8 @@ import net.kyori.adventure.text.format.NamedTextColor;
  * /warpzones delete &lt;name&gt;
  *
  * <p>Deletes a named warp zone and repairs the link chain of any adjacent zones.
+ *
+ * <p>Requires: {@value WarpZonePermissions#ADMIN_DELETE}
  */
 public class WarpZoneDeleteCommand {
 
@@ -21,6 +24,7 @@ public class WarpZoneDeleteCommand {
 
     public static LiteralArgumentBuilder<CommandSourceStack> build(WarpZoneManager manager) {
         return Commands.literal("delete")
+                .requires(src -> src.getSender().hasPermission(WarpZonePermissions.ADMIN_DELETE))
                 .then(Commands.argument("name", StringArgumentType.word())
                         .suggests((ctx, builder) -> {
                             manager.findAllNames().forEach(builder::suggest);

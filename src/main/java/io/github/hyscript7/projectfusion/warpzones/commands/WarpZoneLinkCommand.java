@@ -5,6 +5,7 @@ import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import io.github.hyscript7.projectfusion.warpzones.WarpZone;
 import io.github.hyscript7.projectfusion.warpzones.WarpZoneManager;
+import io.github.hyscript7.projectfusion.warpzones.WarpZonePermissions;
 import io.papermc.paper.command.brigadier.CommandSourceStack;
 import io.papermc.paper.command.brigadier.Commands;
 import net.kyori.adventure.text.Component;
@@ -18,6 +19,8 @@ import net.kyori.adventure.text.format.NamedTextColor;
  * while inside {@code topZone} teleports them back down.
  *
  * <p>Both arguments support tab-completion from the list of registered zone names.
+ *
+ * <p>Requires: {@value WarpZonePermissions#ADMIN_LINK}
  */
 public class WarpZoneLinkCommand {
 
@@ -25,6 +28,7 @@ public class WarpZoneLinkCommand {
 
     public static LiteralArgumentBuilder<CommandSourceStack> build(WarpZoneManager manager) {
         return Commands.literal("link")
+                .requires(src -> src.getSender().hasPermission(WarpZonePermissions.ADMIN_LINK))
                 .then(Commands.argument("belowZone", StringArgumentType.word())
                         .suggests((ctx, builder) -> {
                             manager.findAllNames().forEach(builder::suggest);

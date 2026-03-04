@@ -9,3 +9,48 @@ dependencies:
       load: BEFORE
       required: true
       join-classpath: true
+
+permissions:
+
+  # ---------------------------------------------------------------------------
+  # World-use nodes  —  projectfusion.warpzones.use.<worldname>
+  #
+  # Grant one of these to allow players to travel through warp zones in that
+  # world. The node is derived from the lowercased Bukkit world name, so for a
+  # world called "MyWorld" the node is projectfusion.warpzones.use.myworld.
+  #
+  # The three entries below cover the default vanilla worlds; add more for any
+  # custom worlds on your server.
+  # ---------------------------------------------------------------------------
+
+  projectfusion.warpzones.use.world:
+    description: Allow players to use warp zones in the overworld.
+    default: op
+
+  projectfusion.warpzones.use.world_nether:
+    description: Allow players to use warp zones in the Nether.
+    default: op
+
+  projectfusion.warpzones.use.world_the_end:
+    description: Allow players to use warp zones in the End.
+    default: op
+
+  # ---------------------------------------------------------------------------
+  # Admin command nodes  —  projectfusion.warpzones.admin.<action>
+  # ---------------------------------------------------------------------------
+
+  projectfusion.warpzones.admin.list:
+    description: Allow use of /warpzones list.
+    default: op
+
+  projectfusion.warpzones.admin.create:
+    description: Allow use of /warpzones create.
+    default: op
+
+  projectfusion.warpzones.admin.link:
+    description: Allow use of /warpzones link.
+    default: op
+
+  projectfusion.warpzones.admin.delete:
+    description: Allow use of /warpzones delete.
+    default: op
